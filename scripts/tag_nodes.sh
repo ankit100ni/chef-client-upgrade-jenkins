@@ -17,6 +17,10 @@
 #   NODE_LIST         Multi-line string of Chef node names, one per line.
 #                     When set, overrides the hardcoded NODES fallback below.
 #   UPGRADE_TAG       Tag to apply (overrides default; overridden by --tag).
+#   CONFLICTING_TAGS  Space-separated list of tags to remove before applying
+#                     UPGRADE_TAG (default: "upgrade19 rollback16").
+#                     Should include all mutually exclusive tags so that running
+#                     a rollback clears the upgrade tag, and vice versa.
 #   MAX_PARALLEL      Max concurrent knife calls (overridden by --parallel).
 #   DRY_RUN           Set to "true" to skip live knife mutations.
 #   CHEF_SERVER_URL   Optional Chef server URL override.
@@ -76,8 +80,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Set conflicting tags AFTER arg parsing so --tag override is respected
-CONFLICTING_TAGS=("${UPGRADE_TAG}" "rollback16")
+# Build conflicting tags list AFTER arg parsing so --tag override is respected.
+# The env var CONFLICTING_TAGS (set by Jenkins) is a space-separated list of
+# all mutually exclusive tags — e.g. "upgrade19 rollback16". Falls back to a
+# safe default that covers both upgrade and rollback scenarios.
+IFS=' ' read -ra CONFLICTING_TAGS <<< "${CONFLICTING_TAGS:-upgrade19 rollback16}"
 
 # =============================================================================
 # SECTION 3 — Logging setup
@@ -123,6 +130,7 @@ knife_cmd() {
 
 echo "Nodes to process : ${#NODES[@]}"
 echo "Upgrade tag      : $UPGRADE_TAG"
+echo "Conflicting tags : ${CONFLICTING_TAGS[*]}"
 echo "Max parallel     : $MAX_PARALLEL"
 echo "Dry run          : $DRY_RUN"
 echo ""

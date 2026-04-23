@@ -18,6 +18,11 @@ pipeline {
       description: 'Tag to apply to each node (e.g. upgrade19, upgrade21)'
     )
     string(
+      name: 'CONFLICTING_TAGS',
+      defaultValue: 'upgrade19 rollback16',
+      description: 'Space-separated list of tags to remove before applying UPGRADE_TAG. Should include all mutually exclusive tags (e.g. "upgrade19 rollback16").'
+    )
+    string(
       name: 'BOOTSTRAP_ROLE',
       defaultValue: 'role[chef_upgrade_cron]',
       description: 'Bootstrap role to prepend to each node run list'
