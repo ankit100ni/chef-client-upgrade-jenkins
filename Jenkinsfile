@@ -87,7 +87,13 @@ Leave blank to skip this stage.'''
           if (!params.NODE_LIST?.trim()) {
             error('NODE_LIST parameter is empty. Provide at least one node name.')
           }
-          def nodeCount = params.NODE_LIST.trim().split('\n').findAll { it.trim() }.size()
+          // Normalise node names to lowercase
+          def normalisedNodes = params.NODE_LIST.trim().split('\n')
+            .findAll { it.trim() }
+            .collect { it.trim().toLowerCase() }
+            .join('\n')
+          env.NODE_LIST = normalisedNodes
+          def nodeCount = normalisedNodes.split('\n').size()
           echo "Nodes to process : ${nodeCount}"
           echo "Upgrade tag      : ${params.UPGRADE_TAG}"
           echo "Bootstrap role   : ${params.BOOTSTRAP_ROLE}"
