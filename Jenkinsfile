@@ -1,5 +1,5 @@
 pipeline {
-  agent { label 'chef-pipeline-agent1' }
+  agent any
 
   options {
     timestamps()
