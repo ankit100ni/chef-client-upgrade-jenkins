@@ -70,16 +70,14 @@ Leave blank to skip this stage.'''
     // ─────────────────────────────────────────────────────────────────────────
     stage('Precheck') {
       steps {
-        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
-          sh '''
-            set -euo pipefail
-            command -v knife >/dev/null || {
-              echo "ERROR: knife not found in PATH. Is Chef Workstation installed?"
-              exit 1
-            }
-            knife --version
-          '''
-        }
+        sh '''
+          set -euo pipefail
+          command -v knife >/dev/null || {
+            echo "ERROR: knife not found in PATH. Is Chef Workstation installed?"
+            exit 1
+          }
+          knife --version
+        '''
         script {
           if (!params.NODE_LIST?.trim()) {
             error('NODE_LIST parameter is empty. Provide at least one node name.')
@@ -104,9 +102,7 @@ Leave blank to skip this stage.'''
     // ─────────────────────────────────────────────────────────────────────────
     stage('Tag Nodes') {
       steps {
-        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
-          sh 'bash scripts/tag_nodes.sh'
-        }
+        sh 'bash scripts/tag_nodes.sh'
       }
     }
 
@@ -118,9 +114,7 @@ Leave blank to skip this stage.'''
     // ─────────────────────────────────────────────────────────────────────────
     stage('Prepend Bootstrap Role') {
       steps {
-        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
-          sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/prepend_role.sh'
-        }
+        sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/prepend_role.sh'
       }
     }
 
@@ -138,9 +132,7 @@ Leave blank to skip this stage.'''
         expression { return params.ROLE_SWITCHES?.trim() }
       }
       steps {
-        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
-          sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/switch_roles.sh'
-        }
+        sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/switch_roles.sh'
       }
     }
 
