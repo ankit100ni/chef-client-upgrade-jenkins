@@ -1,5 +1,5 @@
 pipeline {
-  agent any
+  agent { label 'chef-pipeline-agent1' }
 
   options {
     timestamps()
@@ -47,6 +47,16 @@ pipeline {
       defaultValue: '',
       description: 'Path to Chef client key file override — leave blank to use ~/.chef/credentials'
     )
+    text(
+      name: 'ROLE_SWITCHES',
+      defaultValue: '',
+      description: '''Role substitutions to apply to each node\'s run list — one per line, format: old_role:new_role
+Example:
+  role[chef_client_16]:role[chef_client_19]
+  role[old_monitoring]:role[new_monitoring]
+Multiple lines = multiple switches applied atomically per node.
+Leave blank to skip this stage.'''
+    )
   }
 
   environment {
@@ -60,14 +70,16 @@ pipeline {
     // ─────────────────────────────────────────────────────────────────────────
     stage('Precheck') {
       steps {
-        sh '''
-          set -euo pipefail
-          command -v knife >/dev/null || {
-            echo "ERROR: knife not found in PATH. Is Chef Workstation installed?"
-            exit 1
-          }
-          knife --version
-        '''
+        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
+          sh '''
+            set -euo pipefail
+            command -v knife >/dev/null || {
+              echo "ERROR: knife not found in PATH. Is Chef Workstation installed?"
+              exit 1
+            }
+            knife --version
+          '''
+        }
         script {
           if (!params.NODE_LIST?.trim()) {
             error('NODE_LIST parameter is empty. Provide at least one node name.')
@@ -92,7 +104,9 @@ pipeline {
     // ─────────────────────────────────────────────────────────────────────────
     stage('Tag Nodes') {
       steps {
-        sh 'bash scripts/tag_nodes.sh'
+        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
+          sh 'bash scripts/tag_nodes.sh'
+        }
       }
     }
 
@@ -104,7 +118,29 @@ pipeline {
     // ─────────────────────────────────────────────────────────────────────────
     stage('Prepend Bootstrap Role') {
       steps {
-        sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/prepend_role.sh'
+        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
+          sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/prepend_role.sh'
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // STAGE 4 — Switch Roles
+    //   Reads the node list from tag_success.list (Stage 2 handoff file).
+    //   For each node, replaces each old_role with new_role in the Chef run list
+    //   according to ROLE_SWITCHES (one old_role:new_role per line).
+    //   All substitutions for a node are applied atomically in a single knife exec.
+    //   Writes reports/raw/switch_roles.json.
+    //   Skipped automatically when ROLE_SWITCHES is blank.
+    // ─────────────────────────────────────────────────────────────────────────
+    stage('Switch Roles') {
+      when {
+        expression { return params.ROLE_SWITCHES?.trim() }
+      }
+      steps {
+        wrap([$class: 'ChefIdentityBuildWrapper', jobIdentity: 'dev-chef-gtis-progress']) {
+          sh 'TAG_SUCCESS_LIST=reports/raw/tag_success.list bash scripts/switch_roles.sh'
+        }
       }
     }
 
