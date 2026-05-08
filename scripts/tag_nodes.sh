@@ -9,7 +9,7 @@
 #   bash scripts/tag_nodes.sh [options]
 #
 # Options:
-#   --tag      TAG   Upgrade tag to apply (default: upgrade19)
+#   --tag      TAG   Upgrade tag to apply (default: upgrade)
 #   --parallel N     Max concurrent knife calls (default: 20)
 #   --dry-run        Print commands without executing them
 #
@@ -18,7 +18,7 @@
 #                     When set, overrides the hardcoded NODES fallback below.
 #   UPGRADE_TAG       Tag to apply (overrides default; overridden by --tag).
 #   CONFLICTING_TAGS  Space-separated list of tags to remove before applying
-#                     UPGRADE_TAG (default: "upgrade19 rollback16").
+#                     UPGRADE_TAG (default: "prepare upgrade rollback").
 #                     Should include all mutually exclusive tags so that running
 #                     a rollback clears the upgrade tag, and vice versa.
 #   MAX_PARALLEL      Max concurrent knife calls (overridden by --parallel).
@@ -61,7 +61,7 @@ fi
 # =============================================================================
 # SECTION 2 — Defaults and argument parsing
 # =============================================================================
-UPGRADE_TAG="${UPGRADE_TAG:-upgrade19}"
+UPGRADE_TAG="${UPGRADE_TAG:-upgrade}"
 MAX_PARALLEL="${MAX_PARALLEL:-20}"
 DRY_RUN="${DRY_RUN:-false}"
 LOG_DIR="${WORKSPACE:-$(pwd)}/logs"
@@ -82,9 +82,9 @@ done
 
 # Build conflicting tags list AFTER arg parsing so --tag override is respected.
 # The env var CONFLICTING_TAGS (set by Jenkins) is a space-separated list of
-# all mutually exclusive tags — e.g. "upgrade19 rollback16". Falls back to a
+# all mutually exclusive tags — e.g. "prepare upgrade rollback". Falls back to a
 # safe default that covers both upgrade and rollback scenarios.
-IFS=' ' read -ra CONFLICTING_TAGS <<< "${CONFLICTING_TAGS:-upgrade19 rollback16}"
+IFS=' ' read -ra CONFLICTING_TAGS <<< "${CONFLICTING_TAGS:-prepare upgrade rollback}"
 
 # =============================================================================
 # SECTION 3 — Logging setup

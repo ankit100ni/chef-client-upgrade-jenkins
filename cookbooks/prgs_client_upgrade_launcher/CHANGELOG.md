@@ -6,5 +6,5 @@ This file is used to list changes made in each version of the master cookbook.
 
 - Initial release
 - Adds `cron_d` resource to schedule one-shot Chef Client upgrade
-- Guards execution with `upgrade19` and `rollback16` node tags
+- Guards execution with `prepare`, `upgrade`, and `rollback` node tags
 - Cron entry self-removes after the upgrade run completes
