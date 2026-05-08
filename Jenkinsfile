@@ -14,13 +14,13 @@ pipeline {
     )
     string(
       name: 'UPGRADE_TAG',
-      defaultValue: 'upgrade19',
-      description: 'Tag to apply to each node (e.g. upgrade19, upgrade21)'
+      defaultValue: 'upgrade',
+      description: 'Tag to apply to each node (e.g. prepare, upgrade, rollback)'
     )
     string(
       name: 'CONFLICTING_TAGS',
-      defaultValue: 'upgrade19 rollback16',
-      description: 'Space-separated list of tags to remove before applying UPGRADE_TAG. Should include all mutually exclusive tags (e.g. "upgrade19 rollback16").'
+      defaultValue: 'prepare upgrade rollback',
+      description: 'Space-separated list of tags to remove before applying UPGRADE_TAG. Should include all mutually exclusive tags (e.g. "prepare upgrade rollback").'
     )
     string(
       name: 'BOOTSTRAP_ROLE',

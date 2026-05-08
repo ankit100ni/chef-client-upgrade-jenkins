@@ -1,0 +1,34 @@
+# chefignore - patterns for files/dirs Chef should ignore when uploading this cookbook
+
+# Version control
+.git
+.gitignore
+.gitmodules
+.svn
+.hg
+
+# Editor backups / swap files
+*~
+\#*
+.#*
+*.swp
+*.bak
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Test / CI artefacts
+test/
+spec/
+.kitchen/
+.kitchen.local.yml
+Berksfile.lock
+Policyfile.lock.json
+
+# Build outputs
+vendor/
+cookbooks/
+
+# Docs / misc
+CONTRIBUTING.md
