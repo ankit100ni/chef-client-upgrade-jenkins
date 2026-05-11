@@ -65,17 +65,16 @@ if platform_family?('windows')
     )
     run_level :highest
     frequency :minute
-    not_if  { ::File.exist?(WIN_FLAG_FILE) }
+    # not_if  { ::File.exist?(WIN_FLAG_FILE) }  # disabled: upgrade cookbook is idempotent
     only_if { node.tags.any? { |t| UPGRADE_TAGS.include?(t) } }
   end
 
-  # Write flag file AFTER registering the task so a re-converge before the
-  # task fires does not create a duplicate task registration.
-  file WIN_FLAG_FILE do
-    content   "scheduled by chef prgs_client_upgrade_launcher::default at #{Time.now.utc.iso8601}\n"
-    action    :create_if_missing
-    only_if { node.tags.any? { |t| UPGRADE_TAGS.include?(t) } }
-  end
+  # Sentinel file disabled: upgrade cookbook is idempotent, no flag file needed.
+  # file WIN_FLAG_FILE do
+  #   content   "scheduled by chef prgs_client_upgrade_launcher::default at #{Time.now.utc.iso8601}\n"
+  #   action    :create_if_missing
+  #   only_if { node.tags.any? { |t| UPGRADE_TAGS.include?(t) } }
+  # end
 
 else
   # ---------------------------------------------------------------------------
@@ -97,25 +96,23 @@ else
   # ---------------------------------------------------------------------------
   LINUX_FLAG_FILE = '/etc/chef/.upgrade_scheduled'.freeze
 
-  cron_d 'chef-slave-upgrade' do
-    minute  '*'
-    hour    '*'
-    day     '*'
-    month   '*'
-    weekday '*'
-    user    'root'
-    command "flock -n /var/run/chef-slave-upgrade.lock " \
+  # cron_d is only available in Chef >= 14.4; write the drop-in file directly
+  # so this recipe works on Chef 13.x as well.
+  file '/etc/cron.d/chef-slave-upgrade' do
+    content "* * * * * root flock -n /var/run/chef-slave-upgrade.lock " \
             "chef-client -o 'recipe[prgs_chef_custom_migration]' " \
-            "&& rm -f /etc/cron.d/chef-slave-upgrade"
-    not_if  { ::File.exist?(LINUX_FLAG_FILE) }
+            "&& rm -f /etc/cron.d/chef-slave-upgrade\n"
+    mode    '0644'
+    owner   'root'
+    group   'root'
+    # not_if  { ::File.exist?(LINUX_FLAG_FILE) }  # disabled: upgrade cookbook is idempotent
     only_if { node.tags.any? { |t| UPGRADE_TAGS.include?(t) } }
   end
 
-  # Write sentinel AFTER cron_d so re-convergence before first cron tick
-  # does not attempt to re-register the entry.
-  file LINUX_FLAG_FILE do
-    content   "scheduled by chef prgs_client_upgrade_launcher::default at #{Time.now.utc.iso8601}\n"
-    action    :create_if_missing
-    only_if { node.tags.any? { |t| UPGRADE_TAGS.include?(t) } }
-  end
+  # Sentinel file disabled: upgrade cookbook is idempotent, no flag file needed.
+  # file LINUX_FLAG_FILE do
+  #   content   "scheduled by chef prgs_client_upgrade_launcher::default at #{Time.now.utc.iso8601}\n"
+  #   action    :create_if_missing
+  #   only_if { node.tags.any? { |t| UPGRADE_TAGS.include?(t) } }
+  # end
 end
