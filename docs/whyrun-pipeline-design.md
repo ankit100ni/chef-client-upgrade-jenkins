@@ -35,54 +35,90 @@ By invoking `/usr/bin/chef-client.hab19 --why-run`, we test Chef-client 19 again
 
 ## 3. High-Level Flow
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Jenkins Pipeline                            │
-│                                                                 │
-│  Stage 1: Precheck                                              │
-│    └─ Validate knife, NODE_LIST, parameters                     │
-│                                                                 │
-│  Stage 2: Why-Run Validation  ◄── NEW                          │
-│    └─ Tag nodes with 'whyrun'                                   │
-│    └─ Cron / Task fires: chef-client.hab19 -W                   │
-│    └─ Output captured per approach (see §6)                     │
-│    └─ Non-blocking — upgrade continues regardless               │
-│                                                                 │
-│  Stage 3: Tag Nodes                                             │
-│    └─ Apply upgrade / rollback / prepare tag                    │
-│                                                                 │
-│  Stage 4: Prepend Bootstrap Role                                │
-│    └─ Add role[chef_upgrade_cron] to run-list                   │
-│                                                                 │
-│  Stage 5: Switch Roles  (optional)                              │
-│    └─ Swap old roles → new roles atomically per node            │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    classDef jenkins  fill:#1565C0,stroke:#0D47A1,color:#fff,font-weight:bold
+    classDef newstage fill:#E65100,stroke:#BF360C,color:#fff,font-weight:bold
+    classDef upgrade  fill:#2E7D32,stroke:#1B5E20,color:#fff,font-weight:bold
+    classDef optional fill:#6A1B9A,stroke:#4A148C,color:#fff,font-weight:bold
+    classDef terminal fill:#37474F,stroke:#263238,color:#fff,font-weight:bold
+
+    START(["🚀 Jenkins Build Triggered"]):::terminal
+
+    S1["🔍 Stage 1 — Precheck
+    ─────────────────────────────
+    Validate knife is on PATH
+    Validate NODE_LIST is not empty
+    Normalise node names to lowercase
+    Create reports/ and logs/ dirs"]:::jenkins
+
+    S2["⚡ Stage 2 — Why-Run Validation  ◄ NEW
+    ──────────────────────────────────────────
+    Tag all nodes with 'whyrun'
+    Nodes pull: chef-client.hab19 -W
+    Runs against existing run-list
+    Makes ZERO real changes to nodes
+    Non-blocking — upgrade proceeds"]:::newstage
+
+    S3["🏷️ Stage 3 — Tag Nodes
+    ──────────────────────────
+    Remove all conflicting tags
+    Apply upgrade / rollback / prepare
+    Writes reports/raw/tag_success.list"]:::upgrade
+
+    S4["📋 Stage 4 — Prepend Bootstrap Role
+    ───────────────────────────────────────
+    Prepend role[chef_upgrade_cron]
+    to each node's Chef run-list"]:::upgrade
+
+    Q{"ROLE_SWITCHES\nprovided?"}:::upgrade
+
+    S5["🔄 Stage 5 — Switch Roles
+    ───────────────────────────
+    Atomically swap old → new roles
+    per node run-list"]:::optional
+
+    DONE(["✅ Pipeline Complete"]):::terminal
+
+    START --> S1 --> S2 --> S3 --> S4 --> Q
+    Q -->|"Yes"| S5 --> DONE
+    Q -->|"No — skipped"| DONE
 ```
 
 ---
 
 ## 4. Why-Run Stage — Detailed Flow
 
-```
-Jenkins: Apply tag 'whyrun' to all nodes  (knife tag create)
-          │
-          ▼
-Node (cron fires every minute while tag exists)
-  ┌───────────────────────────────────────────────────────┐
-  │  flock -n /var/run/chef19-whyrun.lock \               │
-  │    sudo /usr/bin/chef-client.hab19 --why-run          │
-  │      2>&1 | tee /var/log/chef19-whyrun.log            │
-  │  && knife tag delete <node> whyrun                    │
-  │  && rm -f /etc/cron.d/chef19-whyrun                   │
-  └───────────────────────────────────────────────────────┘
-          │
-          ▼
-   Output written → (see §6 for where it goes)
-          │
-          ▼
-  Tag 'whyrun' removed on success
-  Cron entry self-removes on success
-  On failure: cron retries next minute (same resilience as upgrade)
+```mermaid
+flowchart TD
+    classDef jenkins fill:#1565C0,stroke:#0D47A1,color:#fff,font-weight:bold
+    classDef recipe  fill:#0277BD,stroke:#01579B,color:#fff
+    classDef node    fill:#E65100,stroke:#BF360C,color:#fff,font-weight:bold
+    classDef guard   fill:#F57F17,stroke:#E65100,color:#000
+    classDef success fill:#2E7D32,stroke:#1B5E20,color:#fff,font-weight:bold
+    classDef failure fill:#B71C1C,stroke:#7F0000,color:#fff,font-weight:bold
+    classDef output  fill:#6A1B9A,stroke:#4A148C,color:#fff
+
+    J1["☁️  Jenkins\nknife tag create &lt;node&gt; whyrun"]:::jenkins
+
+    J2["📦 Recipe converges on node\nprgs_client_upgrade_launcher::default\ndetects 'whyrun' tag\n→ writes /etc/cron.d/chef19-whyrun"]:::recipe
+
+    LOCK["🔒 flock -n /var/run/chef19-whyrun.lock\nConcurrency guard\nExits immediately if already locked\n(prevents parallel cron overlap)"]:::guard
+
+    RUN["⚡ sudo /usr/bin/chef-client.hab19 --why-run\n────────────────────────────────────────\nDormant Chef-19 binary (not on PATH)\nUses node's existing run-list from Chef Server\nCompiles + reports what WOULD change\nMakes ZERO real changes to the node"]:::node
+
+    OUT["📤 Output written\n→ see §6 for destination\n(log file / shipper / handler / data bag)"]:::output
+
+    Q{"Exit\ncode?"}:::guard
+
+    OK["✅ Exit 0 — Success\n───────────────────────────\nknife tag delete &lt;node&gt; whyrun\nrm -f /etc/cron.d/chef19-whyrun\nSelf-cleans completely"]:::success
+
+    FAIL["❌ Non-zero — Failure\n───────────────────────────\nCron entry is retained\nRetries next minute\nuntil exit 0"]:::failure
+
+    J1 --> J2 --> LOCK --> RUN --> OUT --> Q
+    Q -->|"0"| OK
+    Q -->|"non-zero"| FAIL
+    FAIL -->|"⏱ next minute"| LOCK
 ```
 
 **Key design decisions inherited from the upgrade pipeline:**
@@ -145,6 +181,42 @@ stage('Why-Run Validation') {
 ## 6. Output Capture — Four Approaches
 
 > The core challenge: `chef-client --why-run` **does not trigger the Data Collector API**, so Chef Automate / Compliance dashboards will not capture it natively. A custom reporting strategy is required.
+
+```mermaid
+flowchart TD
+    classDef exec  fill:#37474F,stroke:#263238,color:#fff,font-weight:bold
+    classDef optA  fill:#1565C0,stroke:#0D47A1,color:#fff,font-weight:bold
+    classDef optB  fill:#2E7D32,stroke:#1B5E20,color:#fff,font-weight:bold
+    classDef optC  fill:#6A1B9A,stroke:#4A148C,color:#fff,font-weight:bold
+    classDef optD  fill:#E65100,stroke:#BF360C,color:#fff,font-weight:bold
+    classDef dashA fill:#1976D2,stroke:#0D47A1,color:#fff
+    classDef dashB fill:#388E3C,stroke:#1B5E20,color:#fff
+    classDef dashC fill:#7B1FA2,stroke:#4A148C,color:#fff
+    classDef dashD fill:#F4511E,stroke:#BF360C,color:#fff
+    classDef badge fill:#F9A825,stroke:#F57F17,color:#000,font-weight:bold
+
+    EXEC["⚡ chef-client.hab19 --why-run\nRuns on node via cron"]:::exec
+
+    A["🅐 Chef Report Handler\n─────────────────────────\nChef::Handler subclass\nprgs_whyrun_reporter cookbook\nFires at end of run"]:::optA
+    B["🅑 Shell → Log Shipper\n─────────────────────────\ntee /var/log/chef19-whyrun.log\nFilebeat / Fluentd / Splunk UF\ntails and forwards"]:::optB
+    C["🅒 Chef Data Bag\n─────────────────────────\nCapture stdout in shell\nknife data bag item create\nwhyrun_results/&lt;node&gt;"]:::optC
+    D["🅓 Local Log Only\n─────────────────────────\ntee /var/log/chef19-whyrun.log\nNo forwarding\nSSH to review"]:::optD
+
+    DA["📊 Kibana / Splunk Dashboard\nStructured JSON per node\nResources-that-would-change"]:::dashA
+    DB["📊 Kibana / Splunk (existing)\nFleet-wide log search\nRegex on raw output"]:::dashB
+    DC["📋 knife data bag show\nJenkins aggregates per build\nChef-ecosystem only"]:::dashC
+    DD["📄 Manual SSH review\nPer-node only\nNo fleet visibility"]:::dashD
+
+    RA["⭐ Long-term recommended\nFully structured & queryable"]:::badge
+    RB["⭐ Short-term recommended\nLeverages existing stack"]:::badge
+    RC["✅ Alternative\nNo external infra needed"]:::badge
+    RD["🔬 MVP only\nSmall fleets / PoC"]:::badge
+
+    EXEC --> A --> DA --> RA
+    EXEC --> B --> DB --> RB
+    EXEC --> C --> DC --> RC
+    EXEC --> D --> DD --> RD
+```
 
 ---
 
@@ -330,25 +402,36 @@ powershell.exe -NonInteractive -NoProfile -Command "
 
 ## 11. Recommended Phased Approach
 
-```
-Phase 1 — MVP (1–2 days)
-  ├─ Implement Option D (local log only)
-  ├─ Add 'whyrun' tag handling to prgs_client_upgrade_launcher::default
-  ├─ Add scripts/whyrun_nodes.sh
-  └─ Add Why-Run Validation stage to Jenkinsfile
-      → Validates the end-to-end flow works before investing in reporting
+```mermaid
+gantt
+    title Chef-Client 19 Why-Run — Phased Rollout
+    dateFormat  YYYY-MM-DD
+    axisFormat  Week %W
 
-Phase 2 — Short-term visibility (1 week)
-  ├─ Implement Option B (log shipper) if shipper agents are present
-  └─ Create Kibana / Splunk saved search for chef19-whyrun events
-      → Gives fleet-wide visibility without new cookbook development
+    section 🔬 Phase 1 — MVP
+    whyrun tag in recipe          :p1a, 2026-05-15, 1d
+    scripts/whyrun_nodes.sh       :p1b, after p1a, 1d
+    Jenkinsfile stage             :p1c, after p1b, 1d
+    Option D local log output     :p1d, after p1c, 1d
+    End-to-end validation         :milestone, after p1d, 0d
 
-Phase 3 — Long-term dashboard (2–3 weeks)
-  ├─ Implement Option A (report handler cookbook)
-  ├─ Structured JSON per node posted to Elasticsearch
-  └─ Kibana dashboard: resources-that-would-change per node / cookbook / recipe
-      → Stakeholder-facing dashboard for upgrade readiness sign-off
+    section 📊 Phase 2 — Visibility
+    Filebeat/Fluentd config       :p2a, after p1d, 2d
+    Kibana/Splunk saved search    :p2b, after p2a, 2d
+    Stakeholder demo              :milestone, after p2b, 0d
+
+    section 🏆 Phase 3 — Dashboard
+    prgs_whyrun_reporter cookbook :p3a, after p2b, 5d
+    Elasticsearch index mapping   :p3b, after p3a, 2d
+    Kibana fleet dashboard        :p3c, after p3b, 3d
+    Upgrade readiness sign-off    :milestone, after p3c, 0d
 ```
+
+| Phase | Deliverable | Option | Effort |
+|---|---|---|---|
+| 1 — MVP | Local log on node, full pipeline wired up | D | 1–2 days |
+| 2 — Visibility | Fleet-wide search via existing log shipper | B | ~1 week |
+| 3 — Dashboard | Structured Kibana dashboard, stakeholder sign-off | A | 2–3 weeks |
 
 ---
 
